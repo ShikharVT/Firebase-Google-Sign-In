@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "880483783716",
+    "project_id": "signin-7dcc6",
+    "storage_bucket": "signin-7dcc6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:880483783716:android:6713c1b3c1292f01e3b4b1",
+        "android_client_info": {
+          "package_name": "com.DefaultCompany.FirebaseGoogleSignIn"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "880483783716-4r2ghbjdj3mui501pu27h46coo7jafpn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.DefaultCompany.FirebaseGoogleSignIn",
+            "certificate_hash": "904d3d877ed9464461daca63279d8525054e7922"
+          }
+        },
+        {
+          "client_id": "880483783716-du3uefpp83id86u9943t96a38uikhlp4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-N4YHnf88vE9ZhiLEYKYwRIMbsveJrTk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "880483783716-du3uefpp83id86u9943t96a38uikhlp4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
