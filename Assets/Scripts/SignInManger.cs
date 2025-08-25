@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using System.Security.Cryptography;
+using System.Text;
 
 #if UNITY_IOS
 using AppleAuth;
@@ -123,7 +125,15 @@ public class SignInManger : MonoBehaviour
     {
         if (!firebaseReady) { Debug.LogError("Firebase not ready"); return; }
 
-        var loginArgs = new AppleAuthLoginArgs(LoginOptions.IncludeEmail | LoginOptions.IncludeFullName);
+        // 1. Generate a secure random nonce
+        string rawNonce = GenerateRandomNonce(32);
+        string hashedNonce = Sha256(rawNonce);
+
+        // 2. Request Apple sign-in with the hashed nonce
+        var loginArgs = new AppleAuthLoginArgs(
+            LoginOptions.IncludeEmail | LoginOptions.IncludeFullName,
+            hashedNonce
+        );
 
         appleAuthManager.LoginWithAppleId(
             loginArgs,
@@ -136,11 +146,13 @@ public class SignInManger : MonoBehaviour
                     return;
                 }
 
-                // Convert token bytes → string
-                string idToken = System.Text.Encoding.UTF8.GetString(appleIdCredential.IdentityToken);
+                // 3. Convert token bytes → string
+                string idToken = Encoding.UTF8.GetString(appleIdCredential.IdentityToken);
 
-                // (Best practice: include a cryptographic nonce; omitted here for brevity.)
-                Credential firebaseCred = OAuthProvider.GetCredential("apple.com", idToken, null, null);
+                // 4. Build Firebase OAuth credential using the *raw nonce*
+                Credential firebaseCred =
+                    OAuthProvider.GetCredential("apple.com", idToken, rawNonce, null);
+
                 SignInWithFirebase(firebaseCred);
             },
             error =>
@@ -148,6 +160,38 @@ public class SignInManger : MonoBehaviour
                 Debug.LogError("Apple Sign-In failed: " + error);
             });
     }
+
+    private string GenerateRandomNonce(int length)
+    {
+        const string charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._";
+        var bytes = new byte[length];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(bytes);
+        }
+
+        var chars = new char[length];
+        for (int i = 0; i < length; i++)
+        {
+            chars[i] = charset[bytes[i] % charset.Length];
+        }
+        return new string(chars);
+    }
+
+    private string Sha256(string input)
+    {
+        using (var sha = SHA256.Create())
+        {
+            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+            var sb = new StringBuilder();
+            foreach (var b in bytes)
+                sb.Append(b.ToString("x2"));
+            return sb.ToString();
+        }
+    }
+
+
+
 #endif
 
     // ---------------- FIREBASE (common) ----------------
