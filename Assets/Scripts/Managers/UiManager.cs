@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Firebase.Auth;
 using TMPro;
 using UnityEngine;
@@ -25,6 +26,15 @@ namespace BackendDev
         
         //References
         private GameData _gameData;
+        
+        //PlayerDetails
+        [SerializeField] private TMP_Text _player1Email;
+        [SerializeField] private TMP_Text _player1Name;
+        [SerializeField] private TMP_Text _player2Email;
+        [SerializeField] private TMP_Text _player2Name;
+        
+        //Room
+        [SerializeField] private TMP_Text _roomID;
 
 
         private void Start()
@@ -98,5 +108,30 @@ namespace BackendDev
             _gamePlayScreen.SetActive(true);
         }
         #endregion
+        
+        public void UpdateRoomPlayerList(List<Dictionary<string, object>> players)
+        {
+            int i = 0;
+            _roomID.text = _gameData.roomData.roomID;
+            // Clear existing UI list
+            // Instantiate prefab for each player
+            foreach (var player in players)
+            {
+                string name = player.ContainsKey("name") ? player["name"].ToString() : "NoName";
+                string email = player.ContainsKey("email") ? player["email"].ToString() : "NoEmail";
+                if (i == 0)
+                {
+                    _player1Email.text = email;
+                    _player1Name.text = name;
+                }
+                else if (i == 1)
+                {
+                    _player2Email.text = email;
+                    _player2Name.text = name;
+                }
+                i++;
+            }
+        }
+
     }
 }

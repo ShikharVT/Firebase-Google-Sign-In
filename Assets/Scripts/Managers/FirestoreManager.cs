@@ -9,6 +9,7 @@ using BackendDev;
 public class FirestoreManager : MonoBehaviour
 {
     [SerializeField] private SignInManger _signInManger;
+    [SerializeField] private UiManager _uiManager;
     private FirebaseFirestore db;
     private bool isFirestoreInitialized = false;
 
@@ -48,61 +49,70 @@ public class FirestoreManager : MonoBehaviour
     }
 
     // ---------------- CREATE OR JOIN ROOM ----------------
-    public async Task CreateOrJoinRoom(string roomId)
+   // ---------------- CREATE OR JOIN ROOM ----------------
+public async Task CreateOrJoinRoom(string roomId)
+{
+    if (!isFirestoreInitialized)
     {
-        // Check if Firestore is initialized
-        if (!isFirestoreInitialized)
-        {
-            Debug.LogError("Firestore not initialized");
-            return;
-        }
-        Debug.Log("Inside CreateOrJoinRoom");
-        FirebaseUser user = FirebaseAuth.DefaultInstance.CurrentUser;
-        Debug.Log("User: " + user.DisplayName);
-
-
-        try
-        {
-            var roomRef = db.Collection("rooms").Document(roomId);
-            Debug.Log("RoomRef: " + roomRef.Path);
-            var snapshot = await roomRef.GetSnapshotAsync();
-            Debug.Log("Snapshot: " + snapshot.Exists);
-
-            if (!snapshot.Exists)
-            {
-                Debug.Log("Inside snapshot.Exist");
-                // Create room if it doesn't exist
-                Dictionary<string, object> roomData = new Dictionary<string, object>
-                {
-                    { "isOpen", true },
-                    { "createdAt", Timestamp.GetCurrentTimestamp() }
-                };
-                await roomRef.SetAsync(roomData);
-                Debug.Log($"Room {roomId} created.");
-                ActionHandler.OnRoomCreated?.Invoke();
-            }
-            else
-            {
-                Debug.Log($"Joining existing room {roomId}");
-            }
-
-            // Add player to subcollection "players"
-            DocumentReference playerRef = roomRef.Collection("players").Document(user.UserId);
-            Dictionary<string, object> playerData = new Dictionary<string, object>
-            {
-                { "name", user.DisplayName ?? "NoName" },
-                { "email", user.Email ?? "NoEmail" }
-            };
-
-            await playerRef.SetAsync(playerData, SetOptions.MergeAll);
-            Debug.Log($"Player {user.UserId} added to room {roomId}");
-            ActionHandler.OnRoomJoined?.Invoke();
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError("Error accessing Firestore: " + e.Message);
-        }
+        Debug.LogError("Firestore not initialized");
+        return;
     }
+    Debug.Log("Inside CreateOrJoinRoom");
+    FirebaseUser user = FirebaseAuth.DefaultInstance.CurrentUser;
+    Debug.Log("User: " + user.DisplayName);
+
+    try
+    {
+        var roomRef = db.Collection("rooms").Document(roomId);
+        Debug.Log("RoomRef: " + roomRef.Path);
+        var snapshot = await roomRef.GetSnapshotAsync();
+        Debug.Log("Snapshot: " + snapshot.Exists);
+
+        if (!snapshot.Exists)
+        {
+            Debug.Log("Inside snapshot.Exist");
+            Dictionary<string, object> roomData = new Dictionary<string, object>
+            {
+                { "isOpen", true },
+                { "createdAt", Timestamp.GetCurrentTimestamp() }
+            };
+            await roomRef.SetAsync(roomData);
+            Debug.Log($"Room {roomId} created.");
+            ActionHandler.OnRoomCreated?.Invoke();
+        }
+        else
+        {
+            Debug.Log($"Joining existing room {roomId}");
+        }
+
+        // Add player to subcollection "players"
+        DocumentReference playerRef = roomRef.Collection("players").Document(user.UserId);
+        Dictionary<string, object> playerData = new Dictionary<string, object>
+        {
+            { "name", user.DisplayName ?? "NoName" },
+            { "email", user.Email ?? "NoEmail" }
+        };
+
+        await playerRef.SetAsync(playerData, SetOptions.MergeAll);
+        Debug.Log($"Player {user.UserId} added to room {roomId}");
+        ActionHandler.OnRoomJoined?.Invoke();
+
+        // ✅ Start listening for players in this room
+        ListenToRoomPlayers(roomId, players =>
+        {
+            Debug.Log($"Players changed in {roomId}, total: {players.Count}");
+            _uiManager.UpdateRoomPlayerList(players);
+
+            // TODO: Update your UI with the `players` list
+            // e.g., call into UiManager to refresh lobby panel
+        });
+    }
+    catch (System.Exception e)
+    {
+        Debug.LogError("Error accessing Firestore: " + e.Message);
+    }
+}
+
 
     // ---------------- FIND OPEN ROOM ----------------
     public async Task FindAndJoinOpenRoom()

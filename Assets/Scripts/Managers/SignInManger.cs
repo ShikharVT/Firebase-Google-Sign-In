@@ -75,7 +75,10 @@ public class SignInManger : MonoBehaviour
         googleConfig = new GoogleSignInConfiguration
         {
             WebClientId   = "880483783716-du3uefpp83id86u9943t96a38uikhlp4.apps.googleusercontent.com",
-            RequestIdToken = true
+            RequestIdToken = true,
+            RequestEmail  = true,
+            RequestProfile = true,
+            AccountName = null
         };
 
         // 3) Hook buttons
