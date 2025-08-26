@@ -5,8 +5,11 @@ using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using BackendDev;
+using Firebase.Extensions;
 using System.Security.Cryptography;
 using System.Text;
+using Firebase.Firestore;
 
 #if UNITY_IOS
 using AppleAuth;
@@ -15,6 +18,7 @@ using AppleAuth.Interfaces;
 using AppleAuth.Native;
 #endif
 
+[DefaultExecutionOrder(-1)]
 public class SignInManger : MonoBehaviour
 {
     [Header("UI References")]
@@ -22,8 +26,12 @@ public class SignInManger : MonoBehaviour
     [SerializeField] private Button appleSignInButton; // Keep assigned in the scene; we’ll hide/show it at runtime
     [SerializeField] private TMP_Text emailText;        // Shows name/email
     [SerializeField] private TMP_Text userIdText;       // Shows UID
+    
+    [SerializeField] private UiManager _uiManager;
+    [SerializeField] private FirestoreManager firestoreManager;
 
     private FirebaseAuth auth;
+    public FirebaseFirestore db;
     private GoogleSignInConfiguration googleConfig;
     private bool firebaseReady;
 
@@ -52,8 +60,10 @@ public class SignInManger : MonoBehaviour
             if (task.Result == DependencyStatus.Available)
             {
                 auth = FirebaseAuth.DefaultInstance;
+                db = FirebaseFirestore.DefaultInstance;
                 firebaseReady = true;
-                Debug.Log("Firebase ready");
+                Debug.Log("Firebase ready : " + auth);
+                Debug.Log("Firestore ready : " + db);
             }
             else
             {
@@ -197,7 +207,7 @@ public class SignInManger : MonoBehaviour
     // ---------------- FIREBASE (common) ----------------
     private void SignInWithFirebase(Credential credential)
     {
-        auth.SignInWithCredentialAsync(credential).ContinueWith(authTask =>
+        auth.SignInWithCredentialAsync(credential).ContinueWithOnMainThread(authTask =>
         {
             if (authTask.IsFaulted || authTask.IsCanceled)
             {
@@ -206,14 +216,20 @@ public class SignInManger : MonoBehaviour
             }
 
             FirebaseUser user = authTask.Result;
-            Debug.Log($"Signed in: {user.DisplayName} | {user.Email} | UID: {user.UserId}");
-            UpdateUI(user);
+            OnSignedIn(user);
         });
     }
 
-    private void UpdateUI(FirebaseUser user)
+    private void OnSignedIn(FirebaseUser user)
     {
-        emailText.text = $"Name: {user.DisplayName}\nEmail: {user.Email}";
-        userIdText.text = $"UID: {user.UserId}";
+        Debug.Log($"Signed in: {user.DisplayName} | {user.Email} | UID: {user.UserId}");
+        // UpdateUI(user);
+        _uiManager.UpdateUiAfterLogin(user);
+        // ActionHandler.OnLoginSuccess?.Invoke(user);
+        if (firestoreManager != null)
+        {
+            // You might need to add a public method in FirestoreManager to handle this
+            firestoreManager.InitializeWithFirestore(db);
+        }
     }
 }

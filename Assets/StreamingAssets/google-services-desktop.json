@@ -37,6 +37,13 @@
             {
               "client_id": "880483783716-du3uefpp83id86u9943t96a38uikhlp4.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "880483783716-k5euftma60uppnkcfn6frnjekhpd8fjj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.DefaultCompany.FirebaseGoogleSignIn"
+              }
             }
           ]
         }
