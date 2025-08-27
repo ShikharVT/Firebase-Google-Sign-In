@@ -8,9 +8,9 @@
     <package>com.google.firebase:firebase-auth:24.0.0</package>
     <package>com.google.firebase:firebase-auth-unity:13.1.0</package>
     <package>com.google.firebase:firebase-common:22.0.0</package>
-    <package>com.google.signin:google-signin-support:1.0.4</package>
     <package>com.google.firebase:firebase-firestore:26.0.0</package>
     <package>com.google.firebase:firebase-firestore-unity:13.1.0</package>
+    <package>com.google.signin:google-signin-support:1.0.4</package>
   </packages>
   <files>
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-analytics-unity/13.1.0/firebase-analytics-unity-13.1.0.aar</file>
@@ -19,10 +19,10 @@
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-app-unity/13.1.0/firebase-app-unity-13.1.0.pom</file>
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-auth-unity/13.1.0/firebase-auth-unity-13.1.0.aar</file>
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-auth-unity/13.1.0/firebase-auth-unity-13.1.0.pom</file>
-    <file>Assets/GeneratedLocalRepo/GoogleSignIn/Editor/m2repository/com/google/signin/google-signin-support/1.0.4/google-signin-support-1.0.4.aar</file>
-    <file>Assets/GeneratedLocalRepo/GoogleSignIn/Editor/m2repository/com/google/signin/google-signin-support/1.0.4/google-signin-support-1.0.4.pom</file>
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-firestore-unity/13.1.0/firebase-firestore-unity-13.1.0.aar</file>
     <file>Assets/GeneratedLocalRepo/Firebase/m2repository/com/google/firebase/firebase-firestore-unity/13.1.0/firebase-firestore-unity-13.1.0.pom</file>
+    <file>Assets/GeneratedLocalRepo/GoogleSignIn/Editor/m2repository/com/google/signin/google-signin-support/1.0.4/google-signin-support-1.0.4.aar</file>
+    <file>Assets/GeneratedLocalRepo/GoogleSignIn/Editor/m2repository/com/google/signin/google-signin-support/1.0.4/google-signin-support-1.0.4.pom</file>
   </files>
   <settings>
     <setting name="androidAbis" value="arm64-v8a" />
