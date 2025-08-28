@@ -120,39 +120,52 @@ public class SignInManger : MonoBehaviour
         }
 
         isSilentLoginInProgress = true;
-    
-        // Check if there's a currently signed-in user
+
         FirebaseUser currentUser = auth.CurrentUser;
-    
+
         if (currentUser != null)
         {
-            Debug.Log("Silent login successful for user: " + currentUser.UserId);
-            Debug.Log("User email: " + currentUser.Email);
-            Debug.Log("User provider: " + currentUser.ProviderId);
-        
-            // Check if this is an anonymous user
-            if (currentUser.IsAnonymous)
+            Debug.Log("Silent login found FirebaseAuth user: " + currentUser.UserId);
+
+            // 🔎 Verify Firestore profile exists
+            db.Collection("users").Document(currentUser.UserId).GetSnapshotAsync().ContinueWithOnMainThread(task =>
             {
-                Debug.Log("User is anonymous");
-            }
-        
-            OnSignedIn(currentUser);
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    Debug.LogError("Firestore check failed: " + task.Exception);
+                    ShowSignInUI();
+                    isSilentLoginInProgress = false;
+                    return;
+                }
+
+                DocumentSnapshot snapshot = task.Result;
+                if (snapshot.Exists)
+                {
+                    Debug.Log("Firestore profile found, proceeding with login.");
+                    OnSignedIn(currentUser);
+                }
+                else
+                {
+                    Debug.LogWarning("⚠ No Firestore profile for this user. Forcing re-sign-in.");
+                    auth.SignOut();
+                    ShowSignInUI();
+                }
+
+                isSilentLoginInProgress = false;
+            });
         }
         else
         {
-            Debug.Log("No previously signed-in user found");
-        
-            // In editor, use test authentication
+            Debug.Log("No previously signed-in FirebaseAuth user.");
 #if UNITY_EDITOR
             SignInWithTestAccountInEditor();
 #else
-        // Show sign-in UI if no silent login available
         ShowSignInUI();
 #endif
+            isSilentLoginInProgress = false;
         }
-    
-        isSilentLoginInProgress = false;
     }
+
     
     private void ShowSignInUI()
     {
