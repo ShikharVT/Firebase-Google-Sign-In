@@ -34,6 +34,8 @@ public class SignInManger : MonoBehaviour
     public FirebaseFirestore db;
     private GoogleSignInConfiguration googleConfig;
     private bool firebaseReady;
+    private bool isSilentLoginInProgress = false;
+
 
 #if UNITY_IOS
     private IAppleAuthManager appleAuthManager;
@@ -41,26 +43,23 @@ public class SignInManger : MonoBehaviour
 
     void Awake()
     {
-        // Runtime platform toggle (works on device builds)
+        // Runtime platform toggle
         bool isAndroid = Application.platform == RuntimePlatform.Android;
         bool isiOS     = Application.platform == RuntimePlatform.IPhonePlayer;
 
-        // Google button is used on both
         if (googleSignInButton != null) googleSignInButton.gameObject.SetActive(true);
-
-        // Apple button only on iOS
         if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(isiOS);
-        
-#if UNITY_EDITOR
-        if (googleSignInButton != null) googleSignInButton.gameObject.SetActive(false);
-        if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(false);
-#endif
     }
 
     void Start()
     {
-        // 1) Firebase init
-        FirebaseApp.CheckAndFixDependenciesAsync().ContinueWith(task =>
+        // Initialize Firebase
+        InitializeFirebase();
+    }
+    
+    private void InitializeFirebase()
+    {
+        FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
         {
             if (task.Result == DependencyStatus.Available)
             {
@@ -69,10 +68,9 @@ public class SignInManger : MonoBehaviour
                 firebaseReady = true;
                 Debug.Log("Firebase ready : " + auth);
                 Debug.Log("Firestore ready : " + db);
-                // Auto-signin in Editor
-#if UNITY_EDITOR
-                SignInAnonymouslyInEditor();
-#endif
+
+                // Try silent login first
+                AttemptSilentLogin();
             }
             else
             {
@@ -80,7 +78,7 @@ public class SignInManger : MonoBehaviour
             }
         });
 
-        // 2) Google config
+        // Configure Google Sign-In
         googleConfig = new GoogleSignInConfiguration
         {
             WebClientId   = "880483783716-du3uefpp83id86u9943t96a38uikhlp4.apps.googleusercontent.com",
@@ -90,7 +88,7 @@ public class SignInManger : MonoBehaviour
             AccountName = null
         };
 
-        // 3) Hook buttons
+        // Hook buttons
         if (googleSignInButton != null)
             googleSignInButton.onClick.AddListener(SignInWithGoogle);
 
@@ -112,6 +110,103 @@ public class SignInManger : MonoBehaviour
 #endif
     }
 
+    // ---------------- SILENT LOGIN ----------------
+    private void AttemptSilentLogin()
+    {
+        if (!firebaseReady) 
+        {
+            Debug.LogError("Firebase not ready for silent login");
+            return;
+        }
+
+        isSilentLoginInProgress = true;
+    
+        // Check if there's a currently signed-in user
+        FirebaseUser currentUser = auth.CurrentUser;
+    
+        if (currentUser != null)
+        {
+            Debug.Log("Silent login successful for user: " + currentUser.UserId);
+            Debug.Log("User email: " + currentUser.Email);
+            Debug.Log("User provider: " + currentUser.ProviderId);
+        
+            // Check if this is an anonymous user
+            if (currentUser.IsAnonymous)
+            {
+                Debug.Log("User is anonymous");
+            }
+        
+            OnSignedIn(currentUser);
+        }
+        else
+        {
+            Debug.Log("No previously signed-in user found");
+        
+            // In editor, use test authentication
+#if UNITY_EDITOR
+            SignInWithTestAccountInEditor();
+#else
+        // Show sign-in UI if no silent login available
+        ShowSignInUI();
+#endif
+        }
+    
+        isSilentLoginInProgress = false;
+    }
+    
+    private void ShowSignInUI()
+    {
+        // Show your sign-in buttons or UI here
+        if (googleSignInButton != null) googleSignInButton.gameObject.SetActive(true);
+#if UNITY_IOS
+        if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(true);
+#endif
+        
+        Debug.Log("Please sign in manually");
+    }
+    
+    // ---------------- EDITOR TEST AUTHENTICATION ----------------
+#if UNITY_EDITOR
+    private void SignInWithTestAccountInEditor()
+    {
+        if (!firebaseReady)
+        {
+            Debug.LogError("Firebase not ready for editor sign-in");
+            return;
+        }
+
+        // Use a test email and password (you might want to create this user in your Firebase project)
+        string testEmail = "test@example.com";
+        string testPassword = "test12356";
+        
+        auth.SignInWithEmailAndPasswordAsync(testEmail, testPassword).ContinueWithOnMainThread(authTask =>
+        {
+            if (authTask.IsFaulted || authTask.IsCanceled)
+            {
+                // If the user doesn't exist, create it
+                auth.CreateUserWithEmailAndPasswordAsync(testEmail, testPassword).ContinueWithOnMainThread(createTask =>
+                {
+                    if (createTask.IsFaulted || createTask.IsCanceled)
+                    {
+                        Debug.LogError("Editor test account creation failed: " + createTask.Exception);
+                        ShowSignInUI();
+                        return;
+                    }
+                    
+                    FirebaseUser user = createTask.Result.User;
+                    Debug.Log("Editor test account created and signed in: " + user.UserId);
+                    OnSignedIn(user);
+                });
+                return;
+            }
+
+            FirebaseUser user = authTask.Result.User;
+            Debug.Log("Editor test account sign-in successful: " + user.UserId);
+            OnSignedIn(user);
+        });
+    }
+#endif
+
     void Update()
     {
 #if UNITY_IOS
@@ -119,29 +214,6 @@ public class SignInManger : MonoBehaviour
         appleAuthManager?.Update();
 #endif
     }
-#if UNITY_EDITOR
-    private void SignInAnonymouslyInEditor()
-    {
-        if (!firebaseReady)
-        {
-            Debug.LogError("Firebase not ready");
-            return;
-        }
-
-        auth.SignInAnonymouslyAsync().ContinueWithOnMainThread(authTask =>
-        {
-            if (authTask.IsFaulted || authTask.IsCanceled)
-            {
-                Debug.LogError("Editor anonymous sign-in failed: " + authTask.Exception);
-                return;
-            }
-
-            FirebaseUser user = authTask.Result.User;
-            Debug.Log("Editor anonymous sign-in successful: " + user.UserId);
-            OnSignedIn(user);
-        });
-    }
-#endif
     // ---------------- GOOGLE ----------------
     public void SignInWithGoogle()
     {
@@ -257,13 +329,38 @@ public class SignInManger : MonoBehaviour
     private void OnSignedIn(FirebaseUser user)
     {
         Debug.Log($"Signed in: {user.DisplayName} | {user.Email} | UID: {user.UserId}");
-        // UpdateUI(user);
-        _uiManager.UpdateUiAfterLogin(user);
-        // ActionHandler.OnLoginSuccess?.Invoke(user);
-        if (firestoreManager != null)
+
+        if (_uiManager == null)
         {
-            // You might need to add a public method in FirestoreManager to handle this
-            firestoreManager.InitializeWithFirestore(db);
+            Debug.LogError("❌ _uiManager is NULL, check inspector assignment!");
+        }
+        else
+        {
+            try
+            {
+                _uiManager.UpdateUiAfterLogin(user);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("Crash in UpdateUiAfterLogin: " + e);
+            }
+        }
+
+        if (firestoreManager == null)
+        {
+            Debug.LogError("❌ firestoreManager is NULL, check inspector assignment!");
+        }
+        else
+        {
+            try
+            {
+                firestoreManager.InitializeWithFirestore(db);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("Crash in FirestoreManager init: " + e);
+            }
         }
     }
+
 }
