@@ -50,6 +50,11 @@ public class SignInManger : MonoBehaviour
 
         // Apple button only on iOS
         if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(isiOS);
+        
+#if UNITY_EDITOR
+        if (googleSignInButton != null) googleSignInButton.gameObject.SetActive(false);
+        if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(false);
+#endif
     }
 
     void Start()
@@ -64,6 +69,10 @@ public class SignInManger : MonoBehaviour
                 firebaseReady = true;
                 Debug.Log("Firebase ready : " + auth);
                 Debug.Log("Firestore ready : " + db);
+                // Auto-signin in Editor
+#if UNITY_EDITOR
+                SignInAnonymouslyInEditor();
+#endif
             }
             else
             {
@@ -110,7 +119,29 @@ public class SignInManger : MonoBehaviour
         appleAuthManager?.Update();
 #endif
     }
+#if UNITY_EDITOR
+    private void SignInAnonymouslyInEditor()
+    {
+        if (!firebaseReady)
+        {
+            Debug.LogError("Firebase not ready");
+            return;
+        }
 
+        auth.SignInAnonymouslyAsync().ContinueWithOnMainThread(authTask =>
+        {
+            if (authTask.IsFaulted || authTask.IsCanceled)
+            {
+                Debug.LogError("Editor anonymous sign-in failed: " + authTask.Exception);
+                return;
+            }
+
+            FirebaseUser user = authTask.Result.User;
+            Debug.Log("Editor anonymous sign-in successful: " + user.UserId);
+            OnSignedIn(user);
+        });
+    }
+#endif
     // ---------------- GOOGLE ----------------
     public void SignInWithGoogle()
     {
