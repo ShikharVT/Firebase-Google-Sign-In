@@ -191,13 +191,8 @@ private async Task UpdateGlobalPlayerProfileAsync(FirebaseUser user, GameData ga
         playerName = user.DisplayName ?? "NoName",
         email = user.Email ?? "NoEmail",
         profilePic = user.PhotoUrl?.ToString(),
-        roomDetails = new RoomDetails
-        {
-            isOpen = gameData.roomData.isOpen ? true : false,
-            roomCreationTime = gameData.roomData.timerData.creationTime,
-            loginSource = _signInManger.GetLoginSource(),
-            roomID = gameData.roomData.roomID,
-        },
+        roomID = gameData.roomData.roomID,
+        loginSource = _signInManger.GetLoginSource(),
         lastLoginTime = Timestamp.GetCurrentTimestamp(),
         currentBuildVersion = Application.version,
         lastBuildVersion = Application.version
@@ -222,25 +217,84 @@ public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
     }
 
     DocumentReference globalPlayerRef = GetCollection("players").Document(user.UserId);
-    
-    // Using a dictionary is perfect for merging data. We only update what's necessary.
-    var playerUpdates = new Dictionary<string, object>
-    {
-        { "playerId", user.UserId },
-        { "playerName", user.DisplayName ?? "NoName" },
-        { "email", user.Email ?? "NoEmail" },
-        { "profilePic", user.PhotoUrl?.ToString() },
-        { "lastLoginTime", Timestamp.GetCurrentTimestamp() },
-        { "currentBuildVersion", Application.version },
-        { "loginSource", _signInManger.GetLoginSource() }
-    };
 
-    // SetOptions.MergeAll is crucial:
-    // - If the document doesn't exist, it will be CREATED.
-    // - If it exists, only the fields in our dictionary will be UPDATED.
-    //   Other fields (like 'roomDetails') will be untouched.
-    await globalPlayerRef.SetAsync(playerUpdates, SetOptions.MergeAll);
-    Debug.Log($"Player profile created/updated on login for {user.UserId}");
+    // First, check if the document already exists
+    DocumentSnapshot snapshot = await globalPlayerRef.GetSnapshotAsync();
+
+    if (!snapshot.Exists)
+    {
+        // --- THIS IS A NEW USER ---
+        // Create a complete profile with default values for all nested classes.
+        var newProfile = new PlayerData
+        {
+            // Login Info
+            playerId = user.UserId,
+            playerName = user.DisplayName ?? "NoName",
+            email = user.Email ?? "NoEmail",
+            profilePic = user.PhotoUrl?.ToString(),
+            lastLoginTime = Timestamp.GetCurrentTimestamp(),
+            currentBuildVersion = Application.version,
+            lastBuildVersion = Application.version, // Set to current on creation
+            loginSource = _signInManger.GetLoginSource(),
+
+            // Game State Info with Default Values
+            roomID = string.Empty,
+            scores = new Scores 
+            { 
+                score = 0 
+            },
+            matchStats = new Matches
+            {
+                totalMatchesOnline = 0,
+                totalWinesOnline = 0,
+                totalMatchesAI = 0,
+                totalWinesAI = 0
+            },
+            totalWinesOnline = new XPLevel // Note: This field name might be a typo in your class
+            {
+                XPPoints = 0,
+                XPTag = "Rookie" // A sensible default tag
+            }
+        };
+
+        await globalPlayerRef.SetAsync(newProfile);
+        Debug.Log($"NEW player profile created with default values for {user.UserId}");
+    }
+    else
+    {
+        // --- THIS IS AN EXISTING USER ---
+        // Update only the login-specific fields to avoid overwriting their game progress.
+        var profileUpdate = new PlayerData
+        {
+            playerName = user.DisplayName ?? "NoName",
+            profilePic = user.PhotoUrl?.ToString(),
+            lastLoginTime = Timestamp.GetCurrentTimestamp(),
+            currentBuildVersion = Application.version,
+        };
+
+        // MergeFields ensures we only touch these specific properties
+        await globalPlayerRef.SetAsync(profileUpdate, SetOptions.MergeFields(
+            "playerName", "profilePic", "lastLoginTime", 
+            "currentBuildVersion", "loginSource"
+        ));
+        Debug.Log($"EXISTING player profile updated for {user.UserId}");
+    }
+}
+
+/// <summary>
+/// Clears the stale room ID from the current player's profile.
+/// </summary>
+/// <param name="playerRef">The DocumentReference for the player to update.</param>
+private async Task ClearStaleRoomDataFromPlayerProfile(DocumentReference playerRef)
+{
+    var updates = new Dictionary<string, object>
+    {
+        // Set the roomID field back to an empty string.
+        // This is safer than deleting the field if your PlayerData class expects it.
+        { "roomID", string.Empty } 
+    };
+    await playerRef.UpdateAsync(updates);
+    Debug.Log($"Cleared stale room data for player {playerRef.Id}.");
 }
 
 /// <summary>
@@ -281,21 +335,26 @@ private void StartListeningForPlayerChanges(string roomId)
 
            PlayerData player = snapshot.ConvertTo<PlayerData>();
 
-           if (player.roomDetails == null)
-               player.roomDetails = new RoomDetails();
+           // if (player.roomDetails == null)
+           //     player.roomDetails = new RoomDetails();
+           if(player.roomID == null)
+                player.roomID = roomData.roomID;
 
-           player.roomDetails.isOpen = roomData.isOpen ? true : false;
-           player.roomDetails.loginSource = _signInManger.GetLoginSource();
-           player.roomDetails.roomID = roomData.roomID;
+           // player.roomDetails.isOpen = roomData.isOpen ? true : false;
+           // player.roomDetails.loginSource = _signInManger.GetLoginSource();
+           // player.roomDetails.roomID = roomData.roomID;
+           player.roomID = roomData.roomID;
+           player.loginSource = _signInManger.GetLoginSource();
            player.lastLoginTime = Timestamp.GetCurrentTimestamp();
 
            transaction.Set(playerDoc, player);
        });
    }
    
-   // ---------------- CHECK AND RESUME SESSION ----------------
+// ---------------- CHECK AND RESUME SESSION ----------------
 /// <summary>
 /// Checks if the current player was in an active room and attempts to resume the session.
+/// This also handles cleanup for expired or closed rooms.
 /// This should be called immediately after a user signs in.
 /// </summary>
 /// <returns>The GameData of the resumed room if successful, otherwise null.</returns>
@@ -304,12 +363,12 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
     // 1. Pre-condition checks
     if (!IsReady(out FirebaseUser user)) return null;
 
+    DocumentReference playerRef = GetCollection("players").Document(user.UserId);
+
     try
     {
-        // 2. Get the player's last known roomID from their profile
-        DocumentReference playerRef = GetCollection("players").Document(user.UserId);
+        // 2. Get the player's profile
         DocumentSnapshot playerSnapshot = await playerRef.GetSnapshotAsync();
-
         if (!playerSnapshot.Exists)
         {
             Debug.Log("Player profile not found. Cannot resume session.");
@@ -317,57 +376,67 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
         }
 
         PlayerData playerData = playerSnapshot.ConvertTo<PlayerData>();
-        string lastRoomId = playerData.roomDetails?.roomID;
+        string lastRoomId = playerData.roomID;
 
+        // If the player has no roomID, they are in a clean state. Nothing to do.
         if (string.IsNullOrEmpty(lastRoomId))
         {
             Debug.Log("Player was not in a room. No session to resume.");
             return null;
         }
 
-        // 3. Fetch the room document using the retrieved roomID
-        Debug.Log($"Found last room ID: {lastRoomId}. Checking its status...");
+        // 3. Player has a roomID, so we must investigate the room's status.
+        Debug.Log($"Player profile indicates they were in room: {lastRoomId}. Checking its status...");
         DocumentReference roomRef = GetCollection("rooms").Document(lastRoomId);
         DocumentSnapshot roomSnapshot = await roomRef.GetSnapshotAsync();
 
+        // --- Scenario 1: The room document was deleted or never existed. ---
+        // The player has a stale roomID. Clean it up.
         if (!roomSnapshot.Exists)
         {
-            Debug.LogWarning($"Room {lastRoomId} no longer exists. Clearing from player profile.");
-            // Optional: Clean up the player's stale roomID here
-            await playerRef.UpdateAsync("roomDetails.roomID", FieldValue.Delete);
+            Debug.LogWarning($"Room {lastRoomId} no longer exists. Cleaning up player profile.");
+            await ClearStaleRoomDataFromPlayerProfile(playerRef);
             return null;
         }
 
         GameData gameData = roomSnapshot.ConvertTo<GameData>();
 
-        // 4. Check if the room is still marked as open
+        // --- Scenario 2: The room has EXPIRED. (This is Player 1's case) ---
+        // This player is the first to return to an expired room. They are responsible for closing it.
+        Timestamp expirationTime = gameData.roomData.timerData.expirationTime;
+        if (expirationTime != null && Timestamp.GetCurrentTimestamp().ToDateTime() > expirationTime.ToDateTime())
+        {
+            Debug.Log($"Room {lastRoomId} has expired. This player will mark it as closed.");
+            // Action: Close the room
+            await roomRef.UpdateAsync("roomData.isOpen", false);
+            // Action: Clean up this player's profile
+            await ClearStaleRoomDataFromPlayerProfile(playerRef);
+            return null; // Session is invalid.
+        }
+        
+        // --- Scenario 3: The room is ALREADY CLOSED. (This is Player 2's case) ---
+        // Another player (or the server) has already marked this room as closed.
         if (!gameData.roomData.isOpen)
         {
-            Debug.Log($"Room {lastRoomId} is already closed. Cannot resume.");
+            Debug.Log($"Room {lastRoomId} is already closed. Cleaning up this player's profile.");
+            // Action: Just clean up this player's stale data
+            await ClearStaleRoomDataFromPlayerProfile(playerRef); 
             return null;
         }
 
-        // 5. CRITICAL: Check the server-side expiration time against the current time
-        Timestamp expirationTime = gameData.roomData.timerData.expirationTime;
-        if (Timestamp.GetCurrentTimestamp().ToDateTime() > expirationTime.ToDateTime())
-        {
-            Debug.Log($"Room {lastRoomId} has expired. Closing it now.");
-            // The room should be closed. Call your existing CloseRoom method.
-            CloseRoom(lastRoomId); // This is an async void method, but it's fine here.
-            return null; // Return null because the session is invalid.
-        }
-
-        // 6. If all checks pass, the room is valid and unexpired.
-        Debug.Log($"Resuming session in valid room: {lastRoomId}");
-        return gameData; // Success! Return the game data to be used for re-initialization.
+        // --- SUCCESS ---
+        // If all checks pass, the room is valid, unexpired, and open.
+        Debug.Log($"SUCCESS: Resuming session in valid room: {lastRoomId}");
+        return gameData;
     }
     catch (System.Exception e)
     {
         Debug.LogError($"Error during session resumption check: {e.Message}");
+        // As a safety net, try to clean up the player's state if an error occurs
+        await ClearStaleRoomDataFromPlayerProfile(playerRef);
         return null;
     }
 }
-
 
 
 

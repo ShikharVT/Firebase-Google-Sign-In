@@ -108,9 +108,6 @@ namespace BackendDev
         public string lastBuildVersion { get; set; }
         
         [FirestoreProperty]
-        public RoomDetails roomDetails { get; set; }
-        
-        [FirestoreProperty]
         public string email { get; set; }
         
         [FirestoreProperty]
@@ -118,6 +115,12 @@ namespace BackendDev
         
         [FirestoreProperty]
         public Timestamp lastLoginTime { get; set; }
+        
+        [FirestoreProperty]
+        public string loginSource { get; set; }
+        
+        [FirestoreProperty]
+        public string roomID { get; set; }
         
         [FirestoreProperty]
         public Scores scores { get; set; }
@@ -162,22 +165,6 @@ namespace BackendDev
         [FirestoreProperty]
         public string XPTag { get; set; }
         
-    }
-
-    [FirestoreData]
-    public class RoomDetails
-    {
-        [FirestoreProperty]
-        public bool isOpen { get; set; }
-        
-        [FirestoreProperty]
-        public string loginSource { get; set; }
-        
-        [FirestoreProperty]
-        public Timestamp roomCreationTime { get; set; } 
-        
-        [FirestoreProperty]
-        public string roomID { get; set; }
     }
     
     
