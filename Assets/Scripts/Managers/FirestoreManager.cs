@@ -65,6 +65,12 @@ public class FirestoreManager : MonoBehaviour
         Debug.Log("Firestore initialized via SignInManager");
     }
 
+    public async Task AddPlayerToGlobalPlayerCollection(FirebaseUser user)
+    {
+        if (!isFirestoreInitialized) return;
+        
+    }
+
    // ---------------- CREATE OR JOIN ROOM ----------------
    public async Task CreateOrJoinRoom(GameData gameData)
 {
@@ -199,6 +205,42 @@ private async Task UpdateGlobalPlayerProfileAsync(FirebaseUser user, GameData ga
 
     await globalPlayerRef.SetAsync(playerProfile, SetOptions.MergeAll);
     Debug.Log($"Global player profile updated for {user.UserId}");
+}
+
+
+/// <summary>
+/// Creates a player profile if one doesn't exist, or updates key details upon login.
+/// This is called immediately after any successful authentication.
+/// </summary>
+/// <param name="user">The authenticated Firebase user.</param>
+public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
+{
+    if (!isFirestoreInitialized || user == null)
+    {
+        Debug.LogError("Firestore not ready or user is null. Cannot update profile.");
+        return;
+    }
+
+    DocumentReference globalPlayerRef = GetCollection("players").Document(user.UserId);
+    
+    // Using a dictionary is perfect for merging data. We only update what's necessary.
+    var playerUpdates = new Dictionary<string, object>
+    {
+        { "playerId", user.UserId },
+        { "playerName", user.DisplayName ?? "NoName" },
+        { "email", user.Email ?? "NoEmail" },
+        { "profilePic", user.PhotoUrl?.ToString() },
+        { "lastLoginTime", Timestamp.GetCurrentTimestamp() },
+        { "currentBuildVersion", Application.version },
+        { "loginSource", _signInManger.GetLoginSource() }
+    };
+
+    // SetOptions.MergeAll is crucial:
+    // - If the document doesn't exist, it will be CREATED.
+    // - If it exists, only the fields in our dictionary will be UPDATED.
+    //   Other fields (like 'roomDetails') will be untouched.
+    await globalPlayerRef.SetAsync(playerUpdates, SetOptions.MergeAll);
+    Debug.Log($"Player profile created/updated on login for {user.UserId}");
 }
 
 /// <summary>

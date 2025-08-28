@@ -387,9 +387,18 @@ private void AttemptSilentLogin()
         });
     }
 
-    private void OnSignedIn(FirebaseUser user)
+    private async void OnSignedIn(FirebaseUser user)
     {
         Debug.Log($"Signed in: {user.DisplayName} | {user.Email} | UID: {user.UserId}");
+        if (firestoreManager == null)
+        {
+            Debug.LogError("❌ firestoreManager is NULL, cannot update player profile!");
+            return;
+        }
+
+        // --- THIS IS THE NEW LOGIC ---
+        // Step 1: Create or update the player's global profile immediately.
+        await firestoreManager.CreateOrUpdatePlayerProfileOnLoginAsync(user);
         HandleSuccessfulLogin(user);
         if (_uiManager == null)
         {
@@ -423,5 +432,7 @@ private void AttemptSilentLogin()
             }
         }
     }
+    
+    
 
 }
