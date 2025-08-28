@@ -35,6 +35,7 @@ public class SignInManger : MonoBehaviour
     private GoogleSignInConfiguration googleConfig;
     private bool firebaseReady;
     private bool isSilentLoginInProgress = false;
+    private string loginSource = "Unknown";
 
 
 #if UNITY_IOS
@@ -56,7 +57,10 @@ public class SignInManger : MonoBehaviour
         // Initialize Firebase
         InitializeFirebase();
     }
-    
+    public string GetLoginSource()
+    {
+        return loginSource;
+    }
     private void InitializeFirebase()
     {
         FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
@@ -69,7 +73,20 @@ public class SignInManger : MonoBehaviour
                 Debug.Log("Firebase ready : " + auth);
                 Debug.Log("Firestore ready : " + db);
 
-                // Try silent login first
+                // --- THE FIX ---
+                // Explicitly initialize FirestoreManager now that 'db' is guaranteed to be valid.
+                // This prevents the race condition.
+                if (firestoreManager != null)
+                {
+                    firestoreManager.InitializeWithFirestore(db);
+                }
+                else
+                {
+                    Debug.LogError("FATAL: firestoreManager is not assigned in the inspector!");
+                    return; // Stop execution if this critical dependency is missing
+                }
+
+                // Now it's safe to attempt silent login
                 AttemptSilentLogin();
             }
             else
@@ -109,62 +126,92 @@ public class SignInManger : MonoBehaviour
         if (appleSignInButton != null) appleSignInButton.gameObject.SetActive(false);
 #endif
     }
-
-    // ---------------- SILENT LOGIN ----------------
-    private void AttemptSilentLogin()
+    
+    
+    // Call this method whenever a user successfully signs in or is found to be already signed in.
+    public async void HandleSuccessfulLogin(FirebaseUser user)
     {
-        if (!firebaseReady) 
+        // First, try to resume a previous game session.
+        GameData resumedGameData = await firestoreManager.CheckAndResumePlayerSessionAsync();
+
+        if (resumedGameData != null)
         {
-            Debug.LogError("Firebase not ready for silent login");
-            return;
-        }
-
-        isSilentLoginInProgress = true;
-
-        FirebaseUser currentUser = auth.CurrentUser;
-
-        if (currentUser != null)
-        {
-            Debug.Log("Silent login found FirebaseAuth user: " + currentUser.UserId);
-
-            // 🔎 Verify Firestore profile exists
-            db.Collection("users").Document(currentUser.UserId).GetSnapshotAsync().ContinueWithOnMainThread(task =>
-            {
-                if (task.IsFaulted || task.IsCanceled)
-                {
-                    Debug.LogError("Firestore check failed: " + task.Exception);
-                    ShowSignInUI();
-                    isSilentLoginInProgress = false;
-                    return;
-                }
-
-                DocumentSnapshot snapshot = task.Result;
-                if (snapshot.Exists)
-                {
-                    Debug.Log("Firestore profile found, proceeding with login.");
-                    OnSignedIn(currentUser);
-                }
-                else
-                {
-                    Debug.LogWarning("⚠ No Firestore profile for this user. Forcing re-sign-in.");
-                    auth.SignOut();
-                    ShowSignInUI();
-                }
-
-                isSilentLoginInProgress = false;
-            });
+            // A valid, unexpired session was found!
+            // Tell the UI Manager to skip the menus and go straight to the game.
+            _uiManager.ResumeGameSession(resumedGameData);
         }
         else
         {
-            Debug.Log("No previously signed-in FirebaseAuth user.");
-#if UNITY_EDITOR
-            SignInWithTestAccountInEditor();
-#else
-        ShowSignInUI();
-#endif
-            isSilentLoginInProgress = false;
+            // No active session found, or the room expired.
+            // Proceed with the normal UI flow (show room choice screen).
+            _uiManager.UpdateUiAfterLogin(user);
         }
     }
+
+    // ---------------- SILENT LOGIN ----------------
+    // In SignInManger.cs
+
+private void AttemptSilentLogin()
+{
+    if (!firebaseReady)
+    {
+        Debug.LogError("Firebase not ready for silent login");
+        return;
+    }
+
+    isSilentLoginInProgress = true;
+    FirebaseUser currentUser = auth.CurrentUser;
+
+    if (currentUser != null)
+    {
+        Debug.Log("Silent login found FirebaseAuth user: " + currentUser.UserId);
+
+        // --- FIX ---
+        // Use the correct helper method from FirestoreManager.
+        // This respects your BuildConfiguration settings.
+        var playerDocRef = firestoreManager.GetCollection("players").Document(currentUser.UserId);
+        Debug.Log($"Checking Firestore path: {playerDocRef.Path}");
+
+        playerDocRef.GetSnapshotAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted || task.IsCanceled)
+            {
+                Debug.LogError("Firestore check failed during silent login: " + task.Exception);
+                ShowSignInUI(); // Show UI on failure
+                isSilentLoginInProgress = false;
+                return;
+            }
+
+            DocumentSnapshot snapshot = task.Result;
+            if (snapshot.Exists)
+            {
+                Debug.Log("Firestore profile found. Proceeding with silent login.");
+                OnSignedIn(currentUser); // User and profile exist, proceed.
+            }
+            else
+            {
+                // --- LOGIC IMPROVEMENT ---
+                // The user is authenticated with Firebase, but their Firestore document is missing.
+                // Don't sign them out! This is likely their first login.
+                // Proceed to OnSignedIn, which will trigger the creation of their profile.
+                Debug.LogWarning("User is authenticated, but no Firestore profile was found. Creating one now.");
+                OnSignedIn(currentUser);
+            }
+
+            isSilentLoginInProgress = false;
+        });
+    }
+    else
+    {
+        Debug.Log("No previously signed-in FirebaseAuth user.");
+        #if UNITY_EDITOR
+        SignInWithTestAccountInEditor();
+        #else
+        ShowSignInUI();
+        #endif
+        isSilentLoginInProgress = false;
+    }
+}
 
     
     private void ShowSignInUI()
@@ -187,7 +234,7 @@ public class SignInManger : MonoBehaviour
             Debug.LogError("Firebase not ready for editor sign-in");
             return;
         }
-
+        loginSource = "EditorTest";
         // Use a test email and password (you might want to create this user in your Firebase project)
         string testEmail = "test@example.com";
         string testPassword = "test12356";
@@ -231,7 +278,8 @@ public class SignInManger : MonoBehaviour
     public void SignInWithGoogle()
     {
         if (!firebaseReady) { Debug.LogError("Firebase not ready"); return; }
-
+        
+        loginSource = "Google";
         GoogleSignIn.Configuration = googleConfig;
         GoogleSignIn.DefaultInstance.SignIn().ContinueWith(OnGoogleAuthFinished);
     }
@@ -253,7 +301,7 @@ public class SignInManger : MonoBehaviour
     private void SignInWithApple()
     {
         if (!firebaseReady) { Debug.LogError("Firebase not ready"); return; }
-
+        loginSource = "Apple";
         // 1. Generate a secure random nonce
         string rawNonce = GenerateRandomNonce(32);
         string hashedNonce = Sha256(rawNonce);
@@ -342,7 +390,7 @@ public class SignInManger : MonoBehaviour
     private void OnSignedIn(FirebaseUser user)
     {
         Debug.Log($"Signed in: {user.DisplayName} | {user.Email} | UID: {user.UserId}");
-
+        HandleSuccessfulLogin(user);
         if (_uiManager == null)
         {
             Debug.LogError("❌ _uiManager is NULL, check inspector assignment!");

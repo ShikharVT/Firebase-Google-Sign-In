@@ -34,6 +34,7 @@ namespace BackendDev
         //References
         [Header( "References" )]
         [SerializeField] private MessageSender _messageSender;
+        [SerializeField] private SignInManger _signInManger;
         
         
         //PlayerDetails
@@ -124,9 +125,10 @@ namespace BackendDev
         private void OnSubmitRoonIdButtonClick()
         {
             RoomData roomData = BuildRoomData();
+            // PlayerData playerData = BuildPlayerData();
             GameData gameData = new GameData
             {
-                roomData = roomData
+                roomData = roomData,
             };
             Debug.Log($"[UIManager] Submitting RoomID: {roomData.roomID}");
             _messageSender.SendCreateOrJoinRoom(gameData);
@@ -154,7 +156,10 @@ namespace BackendDev
         #region OnEnable/OnDisable
         public void UpdateUiAfterLogin(FirebaseUser user)
         {
-            _gameScreen.SetActive(true);
+            _loginScreen.SetActive(false); // Hide login screen
+            _gameScreen.SetActive(true); // Show the parent game screen
+            _roomScreenChoices.SetActive(true); // Explicitly show the choice screen
+            _gamePlayScreen.SetActive(false); // Ensure gameplay screen is hidden
         }
 
         public void OnRoomCreated()
@@ -188,7 +193,8 @@ namespace BackendDev
                 timerData = new TimerData
                 {
                     // expirationTime = Timestamp.FromDateTime(DateTime.UtcNow.AddHours(24)),   // Unity’s current time
-                    expirationTime = Timestamp.FromDateTime(DateTime.UtcNow.AddHours(24)),   // Unity’s current time
+                    expirationTime = Timestamp.FromDateTime(DateTime.UtcNow.AddMinutes(1)),   // Unity’s current time
+                    creationTime = Timestamp.FromDateTime(DateTime.UtcNow),
                     roomsTime = 120f,           // Example: 2 minutes per room
                     player1Timer = 0f,
                     player2Timer = 0f
@@ -245,6 +251,33 @@ namespace BackendDev
             }
         }
         
+        public void ResumeGameSession(GameData gameData)
+        {
+            Debug.Log($"Resuming UI for room: {gameData.roomData.roomID}");
+
+            // Hide all initial screens
+            _loginScreen.SetActive(false);
+            _gameScreen.SetActive(true); // This likely holds the choice buttons
+            _createARoomScreen.SetActive(false);
+            _joinRoomScreen.SetActive(false);
+            _roomScreenChoices.SetActive(false);
+
+            // Show the main gameplay screen
+            _gamePlayScreen.SetActive(true);
+
+            // Initialize the game UI with the resumed room's data.
+            // This is crucial as it re-attaches all the Firestore listeners.
+            InitializeGameUI(gameData.roomData.roomID);
+    
+            // You might also need to re-populate the player list immediately
+            // since the listener might take a moment.
+            // This part is optional but improves user experience.
+            FirestoreManager.Instance.ListenToRoomPlayers(gameData.roomData.roomID, players =>
+            {
+                UpdateRoomPlayerList(players);
+            });
+        }
+        
         public void UpdateRoomPlayerList(List<Dictionary<string, object>> players)
         {
             FirebaseUser currentUser = FirebaseAuth.DefaultInstance.CurrentUser;
@@ -277,7 +310,11 @@ namespace BackendDev
 
         public void OnRoomClosed()
         {
-            
+            _gamePlayScreen.SetActive(false);
+            _createARoomScreen.SetActive(false);
+            _joinRoomScreen.SetActive(false);
+            _gameScreen.SetActive(true);
+            _roomScreenChoices.SetActive(true);
         }
         
         

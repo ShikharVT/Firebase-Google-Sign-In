@@ -3,12 +3,18 @@ using Firebase.Firestore;
 
 namespace BackendDev
 {
+    
+    // Game Related
     [FirestoreData]
     public class GameData
     {
         [FirestoreProperty]
         public RoomData roomData { get; set; }
+        public PlayerData playerData { get; set; }
+        
     }
+    
+    // Room Related
 
     [FirestoreData]
     public class RoomData
@@ -50,6 +56,9 @@ namespace BackendDev
     {
         [FirestoreProperty]
         public Timestamp expirationTime { get; set; }
+        
+        [FirestoreProperty]
+        public Timestamp creationTime { get; set; }
 
         [FirestoreProperty]
         public float roomsTime { get; set; }
@@ -82,6 +91,7 @@ namespace BackendDev
     }
 
 
+    // Player Related
     [FirestoreData]
     public class PlayerData
     {
@@ -98,6 +108,9 @@ namespace BackendDev
         public string lastBuildVersion { get; set; }
         
         [FirestoreProperty]
+        public RoomDetails roomDetails { get; set; }
+        
+        [FirestoreProperty]
         public string email { get; set; }
         
         [FirestoreProperty]
@@ -111,16 +124,25 @@ namespace BackendDev
         
         [FirestoreProperty]
         public Matches matchStats { get; set; }
+        
+        [FirestoreProperty]
+        public XPLevel totalWinesOnline { get; set; }
     }
 
     [FirestoreData]
     public class Matches
     {
         [FirestoreProperty]
-        public int totalMatches { get; set; }
+        public int totalMatchesOnline { get; set; }
         
         [FirestoreProperty]
-        public int totalWines { get; set; }
+        public int totalWinesOnline { get; set; }
+        
+        [FirestoreProperty]
+        public int totalMatchesAI { get; set; }
+        
+        [FirestoreProperty]
+        public int totalWinesAI { get; set; }
     }
     
     [FirestoreData]
@@ -129,5 +151,41 @@ namespace BackendDev
         [FirestoreProperty]
         public int score { get; set; }
         
+    }
+    
+    [FirestoreData]
+    public class XPLevel
+    {
+        [FirestoreProperty]
+        public int XPPoints { get; set; }
+        
+        [FirestoreProperty]
+        public string XPTag { get; set; }
+        
+    }
+
+    [FirestoreData]
+    public class RoomDetails
+    {
+        [FirestoreProperty]
+        public bool isOpen { get; set; }
+        
+        [FirestoreProperty]
+        public string loginSource { get; set; }
+        
+        [FirestoreProperty]
+        public Timestamp roomCreationTime { get; set; } 
+        
+        [FirestoreProperty]
+        public string roomID { get; set; }
+    }
+    
+    
+    // Environment Variable Related
+    [FirestoreData]
+    public class EnvVariables
+    {
+        [FirestoreProperty]
+        public string buildType { get; set; }
     }
 }
