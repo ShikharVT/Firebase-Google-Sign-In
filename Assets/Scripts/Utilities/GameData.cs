@@ -24,6 +24,9 @@ namespace BackendDev
         
         [FirestoreProperty]
         public string roomID { get; set; }
+        
+        [FirestoreProperty]
+        public RoomProperties roomProperties { get; set; }
 
         [FirestoreProperty]
         public string buildVersion { get; set; }
@@ -42,6 +45,16 @@ namespace BackendDev
 
         [FirestoreProperty]
         public PlayersHandData playerHandData { get; set; }
+    }
+
+    [FirestoreData]
+    public class RoomProperties
+    {
+        [FirestoreProperty]
+        public string roomType { get; set; }
+        
+        [FirestoreProperty]
+        public bool roomStatus { get; set; }
     }
 
     [FirestoreData]

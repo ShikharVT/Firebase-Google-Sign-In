@@ -281,9 +281,82 @@ public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
         // MergeFields ensures we only touch these specific properties
         await globalPlayerRef.SetAsync(profileUpdate, SetOptions.MergeFields(
             "playerName", "profilePic", "lastLoginTime", 
-            "currentBuildVersion", "loginSource"
+            "currentBuildVersion"
         ));
         Debug.Log($"EXISTING player profile updated for {user.UserId}");
+    }
+}
+
+/// <summary>
+/// Atomically updates a player's score within a room using a transaction.
+/// </summary>
+/// <param name="roomId">The ID of the room.</param>
+/// <param name="scoreDelta">The amount to add to the score (e.g., 1 or -1).</param>
+public async Task UpdatePlayerScoreAsync(string roomId, int scoreDelta)
+{
+    // 1. Pre-condition checks
+    if (!IsReady(out FirebaseUser user)) return;
+    if (string.IsNullOrEmpty(roomId))
+    {
+        Debug.LogError("Room ID is null or empty. Cannot update score.");
+        return;
+    }
+
+    DocumentReference roomRef = GetCollection("rooms").Document(roomId);
+
+    try
+    {
+        // 2. We need to know which field to increment: 'player1Score' or 'player2Score'
+        // To do this, we must first read the room document to find the player's index.
+        DocumentSnapshot roomSnapshot = await roomRef.GetSnapshotAsync();
+        if (!roomSnapshot.Exists)
+        {
+            Debug.LogError($"Room {roomId} does not exist.");
+            return;
+        }
+
+        GameData gameData = roomSnapshot.ConvertTo<GameData>();
+        if (gameData?.roomData?.playerIDs == null)
+        {
+            Debug.LogError("PlayerIDs array is missing from room data.");
+            return;
+        }
+        // --- ADD THIS LOGGING ---
+        string[] playerIdsInDoc = gameData.roomData.playerIDs ?? new string[0];
+        Debug.Log($"[UpdateScore] Current User: {user.UserId}. Player IDs in Doc: [{string.Join(", ", playerIdsInDoc)}]");
+        // --- END LOGGING ---
+
+        int playerIndex = System.Array.IndexOf(gameData.roomData.playerIDs, user.UserId);
+        // --- ADD THIS LOGGING ---
+        Debug.Log($"[UpdateScore] Calculated playerIndex: {playerIndex}");
+        // --- END LOGGING ---
+        string scoreFieldToUpdate;
+        if (playerIndex == 0)
+        {
+            scoreFieldToUpdate = "roomData.playerScore.player1Score";
+        }
+        else if (playerIndex == 1)
+        {
+            scoreFieldToUpdate = "roomData.playerScore.player2Score";
+        }
+        else
+        {
+            Debug.LogWarning($"Player {user.UserId} not found in room {roomId}. Score not updated.");
+            return;
+        }
+
+        // 3. Create the update dictionary with the atomic increment operation
+        var updates = new Dictionary<string, object>
+        {
+            { scoreFieldToUpdate, FieldValue.Increment(scoreDelta) }
+        };
+
+        // 4. Send the atomic update request
+        await roomRef.UpdateAsync(updates);
+    }
+    catch (System.Exception e)
+    {
+        Debug.LogError($"Error updating score with increment: {e.Message}");
     }
 }
 

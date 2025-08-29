@@ -42,8 +42,11 @@ namespace BackendDev
         [Header( "PlayerDetails" )]
         [SerializeField] private TMP_Text _player1Email;
         [SerializeField] private TMP_Text _player1Name;
+        [SerializeField] private TMP_Text _player1ScoreText; // ADD THIS
         [SerializeField] private TMP_Text _player2Email;
         [SerializeField] private TMP_Text _player2Name;
+        [SerializeField] private TMP_Text _player2ScoreText; // ADD THIS
+
         
         //Room
         [Header( "Room Details" )]
@@ -54,9 +57,12 @@ namespace BackendDev
         [SerializeField] private Button[] gameButtons;
         [SerializeField] private Color defaultColor = Color.white;
         [SerializeField] private Color clickedColor = Color.green;
+        [SerializeField] private Button _increaseScoreBtn;
+        [SerializeField] private Button _decreaseScoreBtn;
         
         //Private Fields
         private GameData _gameData;
+        private RoomData _currentRoomData = new RoomData();
         private string roomId;
         private int[] localStates;
         private float roomTimer;          // countdown in seconds
@@ -126,6 +132,8 @@ namespace BackendDev
             _createRoomScreenButton.onClick.AddListener(OnCreateRoomScreenButtonClick);
             _joinRoomScreenButton.onClick.AddListener(OnJoinRoomScreenButtonClick);
             _leaveRoomButton.onClick.AddListener(OnLeaveButtonClick);
+            _increaseScoreBtn.onClick.AddListener(OnIncreaseScoreClicked);
+            _decreaseScoreBtn.onClick.AddListener(OnDecreaseScoreClicked);
         }
         
         private void OnSubmitRoonIdButtonClick()
@@ -162,7 +170,78 @@ namespace BackendDev
         {
             _messageSender.LeaveRoom();
         }
+
+        private void OnIncreaseScoreClicked()
+        {
+            if (string.IsNullOrEmpty(roomId) || _currentRoomData == null) return;
+    
+            // --- Background Update ---
+            // Send the update request to Firestore. We don't wait for it to complete.
+            FirestoreManager.Instance.UpdatePlayerScoreAsync(roomId, 1);
+    
+            // --- Instant UI Update ---
+            // 1. Find out who the local player is
+            FirebaseUser currentUser = FirebaseAuth.DefaultInstance.CurrentUser;
+            int localPlayerIndex = System.Array.IndexOf(_currentRoomData.playerIDs, currentUser.UserId);
+    
+            // 2. Modify the local data cache
+            if(localPlayerIndex == 0) _currentRoomData.playerScore.player1Score++;
+            else if(localPlayerIndex == 1) _currentRoomData.playerScore.player2Score++;
+
+            // 3. Immediately update the UI with the modified local data
+            UpdateScoreUI(_currentRoomData);
+        }
+
+        private void OnDecreaseScoreClicked()
+        {
+            if (string.IsNullOrEmpty(roomId) || _currentRoomData == null) return;
+
+            // --- Background Update ---
+            FirestoreManager.Instance.UpdatePlayerScoreAsync(roomId, -1);
+    
+            // --- Instant UI Update ---
+            FirebaseUser currentUser = FirebaseAuth.DefaultInstance.CurrentUser;
+            int localPlayerIndex = System.Array.IndexOf(_currentRoomData.playerIDs, currentUser.UserId);
+    
+            if(localPlayerIndex == 0) _currentRoomData.playerScore.player1Score--;
+            else if(localPlayerIndex == 1) _currentRoomData.playerScore.player2Score--;
+
+            UpdateScoreUI(_currentRoomData);
+        }
         #endregion
+        
+        private void UpdateScoreUI(RoomData roomData)
+        {
+            if (roomData?.playerScore == null || roomData.playerIDs == null || roomData.playerIDs.Length == 0)
+            {
+                // Not enough data to update scores, maybe clear them
+                _player1ScoreText.text = "Score: 0";
+                _player2ScoreText.text = "Score: 0";
+                return;
+            }
+            
+            // --- ADD THIS LOGGING ---
+            Debug.Log($"[UpdateScoreUI] Updating UI with scores: P1 Score = {roomData.playerScore.player1Score}, P2 Score = {roomData.playerScore.player2Score}");
+            // --- END LOGGING ---
+    
+            FirebaseUser currentUser = FirebaseAuth.DefaultInstance.CurrentUser;
+            if (currentUser == null) return;
+
+            // Determine which score belongs to the local player (who is always P1 in the UI)
+            int localPlayerIndex = System.Array.IndexOf(roomData.playerIDs, currentUser.UserId);
+
+            if (localPlayerIndex == 0) // Local player is P1 in Firestore
+            {
+                _player1ScoreText.text = $"Score: {roomData.playerScore.player1Score}";
+                _player2ScoreText.text = $"Score: {roomData.playerScore.player2Score}";
+            }
+            else if (localPlayerIndex == 1) // Local player is P2 in Firestore
+            {
+                // Display P2's score in the P1 slot and vice-versa
+                _player1ScoreText.text = $"Score: {roomData.playerScore.player2Score}";
+                _player2ScoreText.text = $"Score: {roomData.playerScore.player1Score}";
+            }
+        }
         
         #region OnEnable/OnDisable
         public void UpdateUiAfterLogin(FirebaseUser user)
@@ -329,29 +408,57 @@ namespace BackendDev
         }
         
         
-        private void OnRoomDataUpdated(RoomData roomData)
+        private void OnRoomDataUpdated(RoomData incomingRoomData)
         {
             // If the room is no longer open, close the UI and stop processing.
-            if (!roomData.isOpen)
+            if (!incomingRoomData.isOpen)
             {
-                Debug.Log("Room has been closed by another player or event. Returning to menu.");
+                Debug.Log("Room has been closed. Returning to menu.");
                 OnRoomClosed();
                 isTimerRunning = false; // Stop the timer as well
                 return;
             }
-
-            if (roomData.timerData != null && roomData.timerData.expirationTime != null)
+    
+            // ✅ THE FIX: Check if the server data is stale compared to our optimistic UI
+            if (_currentRoomData != null && _currentRoomData.playerScore != null && incomingRoomData.playerScore != null)
             {
-                DateTime expiration = roomData.timerData.expirationTime.ToDateTime();
+                FirebaseUser currentUser = FirebaseAuth.DefaultInstance.CurrentUser;
+                if (currentUser != null)
+                {
+                    int localPlayerIndex = System.Array.IndexOf(_currentRoomData.playerIDs, currentUser.UserId);
+                    if (localPlayerIndex == 0)
+                    {
+                        // If the incoming score is less than our current optimistic score, ignore this update.
+                        if (incomingRoomData.playerScore.player1Score < _currentRoomData.playerScore.player1Score)
+                        {
+                            return; // EXIT EARLY
+                        }
+                    }
+                    else if (localPlayerIndex == 1)
+                    {
+                        if (incomingRoomData.playerScore.player2Score < _currentRoomData.playerScore.player2Score)
+                        {
+                            return; // EXIT EARLY
+                        }
+                    }
+                }
+            }
+    
+            // 1. ALWAYS update our local cache with the latest valid truth from the server.
+            _currentRoomData = incomingRoomData;
+
+            // 2. Refresh the entire UI based on this new data.
+            UpdateScoreUI(_currentRoomData);
+
+            if (_currentRoomData.timerData?.expirationTime != null)
+            {
+                DateTime expiration = _currentRoomData.timerData.expirationTime.ToDateTime();
                 remainingTime = (float)(expiration - DateTime.UtcNow).TotalSeconds;
 
-                if (remainingTime > 0)
+                isTimerRunning = remainingTime > 0;
+        
+                if (!isTimerRunning)
                 {
-                    isTimerRunning = true;
-                }
-                else
-                {
-                    isTimerRunning = false;
                     _roomTimer.text = "Expired";
                     FirestoreManager.Instance.CloseRoom(roomId);
                 }
