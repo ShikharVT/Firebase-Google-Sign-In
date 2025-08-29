@@ -26,6 +26,7 @@ namespace BackendDev
         [SerializeField] private Button _joinRoomButton;
         [SerializeField] private Button _createRoomScreenButton;
         [SerializeField] private Button _joinRoomScreenButton;
+        [SerializeField] private Button _leaveRoomButton;
         
         //TextFields
         [Header( "TextFields" )]
@@ -120,6 +121,7 @@ namespace BackendDev
             _joinRoomButton.onClick.AddListener(OnJoinRoomButtonClick);
             _createRoomScreenButton.onClick.AddListener(OnCreateRoomScreenButtonClick);
             _joinRoomScreenButton.onClick.AddListener(OnJoinRoomScreenButtonClick);
+            _leaveRoomButton.onClick.AddListener(OnLeaveButtonClick);
         }
         
         private void OnSubmitRoonIdButtonClick()
@@ -150,6 +152,11 @@ namespace BackendDev
         {
             _joinRoomScreen.SetActive(true);
             _roomScreenChoices.SetActive(false);
+        }
+
+        private void OnLeaveButtonClick()
+        {
+            _messageSender.LeaveRoom();
         }
         #endregion
         
@@ -320,6 +327,15 @@ namespace BackendDev
         
         private void OnRoomDataUpdated(RoomData roomData)
         {
+            // If the room is no longer open, close the UI and stop processing.
+            if (!roomData.isOpen)
+            {
+                Debug.Log("Room has been closed by another player or event. Returning to menu.");
+                OnRoomClosed();
+                isTimerRunning = false; // Stop the timer as well
+                return;
+            }
+
             if (roomData.timerData != null && roomData.timerData.expirationTime != null)
             {
                 DateTime expiration = roomData.timerData.expirationTime.ToDateTime();

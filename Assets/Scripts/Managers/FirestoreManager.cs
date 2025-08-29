@@ -103,6 +103,12 @@ public class FirestoreManager : MonoBehaviour
         Debug.LogError($"Error in CreateOrJoinRoom process: {e.Message}");
     }
 }
+   
+   
+   public async void LeaveRoom()
+   {
+       
+   }
 
 // =====================================================================
 // HELPER FUNCTIONS
@@ -514,9 +520,64 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
         onPlayersChanged?.Invoke(players);
     });
 }
+    
+    
 
     
-    
+    /// <summary>
+    /// Handles the process for a player leaving a room.
+    /// This involves removing them from the room's player list,
+    /// closing the room, and cleaning up profiles.
+    /// </summary>
+    public async Task LeaveRoomAsync()
+    {
+        // 1. Pre-condition checks
+        if (!IsReady(out FirebaseUser user)) return;
+
+        DocumentReference playerRef = GetCollection("players").Document(user.UserId);
+        string roomId = null;
+
+        try
+        {
+            // 2. Get the player's profile to find their current room ID
+            DocumentSnapshot playerSnapshot = await playerRef.GetSnapshotAsync();
+            if (playerSnapshot.Exists)
+            {
+                PlayerData playerData = playerSnapshot.ConvertTo<PlayerData>();
+                roomId = playerData.roomID;
+            }
+
+            // Exit if the player isn't in a room
+            if (string.IsNullOrEmpty(roomId))
+            {
+                Debug.LogWarning($"Player {user.UserId} is not in a room, cannot leave.");
+                return;
+            }
+
+            Debug.Log($"Player {user.UserId} is leaving room {roomId}.");
+        
+            // 3. Remove the current player from the room's "players" subcollection
+            DocumentReference playerInRoomRef = GetCollection("rooms").Document(roomId).Collection("players").Document(user.UserId);
+            await playerInRoomRef.DeleteAsync();
+            Debug.Log($"Player {user.UserId} removed from room's subcollection.");
+
+            // 4. Clear the room ID from the leaving player's own profile immediately
+            await ClearStaleRoomDataFromPlayerProfile(playerRef);
+        
+            // 5. Close the room for everyone. This will also handle cleaning up the
+            // profiles of any remaining players.
+            await CloseRoom(roomId);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Error during LeaveRoom process: {e.Message}");
+            // As a failsafe, still try to clear the player's room data
+            if (playerRef != null)
+            {
+                await ClearStaleRoomDataFromPlayerProfile(playerRef);
+            }
+        }
+    }
     
     // ---------------- UPDATE BUTTON STATE ----------------
     public async void UpdateButtonState(string roomId, int buttonIndex, int newState)
@@ -580,36 +641,40 @@ public async Task CloseRoom(string roomId)
         }
 
         GameData gameData = roomSnapshot.ConvertTo<GameData>();
-        string[] playerIDs = gameData.roomData.playerIDs;
+        
+        List<string> playerIDs = gameData.roomData.playerIDs != null ? 
+                                 new List<string>(gameData.roomData.playerIDs) : 
+                                 new List<string>();
 
-        // Step 2: Update the room's status to closed
+
+        // Step 2: Update the room's status and clear its player list
+        // We now update both fields in a single operation.
         await roomRef.UpdateAsync(new Dictionary<string, object>
         {
-            { "roomData.isOpen", false }
+            { "roomData.isOpen", false },
+            { "roomData.playerIDs", new List<string>() } // ✅ ADD THIS LINE
         });
-        Debug.Log($"Room {roomId} closed successfully.");
+        Debug.Log($"Room {roomId} closed and player list cleared successfully.");
         
-        // This is called on the main thread, so it's safe to update UI
+        // This updates the UI of the client who initiated the close.
         _uiManager.OnRoomClosed();
 
-        // Step 3: Update the profile of each player in that room
-        if (playerIDs != null && playerIDs.Length > 0)
+        // Step 3: Update the profile of each player who was in that room
+        if (playerIDs.Count > 0)
         {
             foreach (string playerId in playerIDs)
             {
                 if (string.IsNullOrEmpty(playerId)) continue;
                 
                 DocumentReference playerRef = GetCollection("players").Document(playerId);
+                
                 Dictionary<string, object> playerUpdates = new Dictionary<string, object>
                 {
-                    // Use dot notation to update a field in a map
-                    { "roomDetails.isOpen", false },
-                    // // It's also good practice to clear their current room ID
-                    // { "roomDetails.roomID", FieldValue.Delete } 
+                    { "roomID", string.Empty }
                 };
 
                 await playerRef.UpdateAsync(playerUpdates);
-                Debug.Log($"Updated player {playerId} profile: room status set to closed.");
+                Debug.Log($"Updated player {playerId} profile: roomID cleared.");
             }
         }
     }

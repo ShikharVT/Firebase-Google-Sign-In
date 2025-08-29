@@ -17,8 +17,14 @@ namespace BackendDev
 
         public async void JoinRoom()
         {
-            // Debug.Log($"[MessageSender] Sending room data for RoomID: {roomData.roomID}");
             await _firestoreManager.FindAndJoinOpenRoom();
+        }
+
+        // REPLACE the existing LeaveRoom method with this one.
+        public async void LeaveRoom()
+        {
+            Debug.Log("[MessageSender] Sending leave room request.");
+            await _firestoreManager.LeaveRoomAsync();
         }
     }
 
