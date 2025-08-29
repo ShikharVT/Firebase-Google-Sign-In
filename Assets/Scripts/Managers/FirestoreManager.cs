@@ -310,7 +310,6 @@ public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
             { "profilePic", user.PhotoUrl?.ToString() },
             { "lastLoginTime", Timestamp.GetCurrentTimestamp() },
             { "currentBuildVersion", Application.version },
-            { "loginSource", _signInManger.GetLoginSource() }
         };
 
         // Also check if matchStats needs to be initialized
