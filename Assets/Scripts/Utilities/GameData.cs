@@ -142,7 +142,7 @@ namespace BackendDev
         public Matches matchStats { get; set; }
         
         [FirestoreProperty]
-        public XPLevel totalWinesOnline { get; set; }
+        public XPLevel xpLevel { get; set; }
     }
 
     [FirestoreData]
@@ -152,7 +152,7 @@ namespace BackendDev
         public int totalMatchesOnline { get; set; }
         
         [FirestoreProperty]
-        public int totalWinesOnline { get; set; }
+        public int totalWinsOnline { get; set; }
         
         [FirestoreProperty]
         public int totalMatchesAI { get; set; }

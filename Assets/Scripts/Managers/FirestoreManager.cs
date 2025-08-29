@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Firebase.Auth;
@@ -188,32 +189,77 @@ private async Task AddPlayerToRoomSubcollectionAsync(DocumentReference roomRef, 
 /// </summary>
 /// <param name="user">The current Firebase user.</param>
 /// <param name="gameData">The game data containing room status.</param>
+// In FirestoreManager.cs
 private async Task UpdateGlobalPlayerProfileAsync(FirebaseUser user, GameData gameData)
 {
     DocumentReference globalPlayerRef = GetCollection("players").Document(user.UserId);
-    PlayerData playerProfile = new PlayerData
+
+    // ✅ Build a dictionary of specific fields to update safely.
+    var updates = new Dictionary<string, object>
     {
-        playerId = user.UserId,
-        playerName = user.DisplayName ?? "NoName",
-        email = user.Email ?? "NoEmail",
-        profilePic = user.PhotoUrl?.ToString(),
-        roomID = gameData.roomData.roomID,
-        loginSource = _signInManger.GetLoginSource(),
-        lastLoginTime = Timestamp.GetCurrentTimestamp(),
-        currentBuildVersion = Application.version,
-        lastBuildVersion = Application.version
+        { "playerName", user.DisplayName ?? "NoName" },
+        { "email", user.Email ?? "NoEmail" },
+        { "profilePic", user.PhotoUrl?.ToString() },
+        { "roomID", gameData.roomData.roomID },
+        { "loginSource", _signInManger.GetLoginSource() },
+        { "lastLoginTime", Timestamp.GetCurrentTimestamp() },
+        { "currentBuildVersion", Application.version }
+        // We intentionally do NOT touch matchStats or other sensitive data here.
     };
 
-    await globalPlayerRef.SetAsync(playerProfile, SetOptions.MergeAll);
-    Debug.Log($"Global player profile updated for {user.UserId}");
+    // Use the safe UpdateAsync command.
+    await globalPlayerRef.UpdateAsync(updates);
+
+    Debug.Log($"Global player profile safely updated for {user.UserId}");
 }
 
+
+// In FirestoreManager.cs, add this new private method.
+
+/// <summary>
+/// Updates the match statistics for both the winner and the loser of a game.
+/// </summary>
+/// <param name="winnerId">The ID of the winning player.</param>
+/// <param name="loserId">The ID of the losing player.</param>
+/// <param name="isDraw">Set to true if the match was a draw.</param>
+private async Task UpdatePlayerStatsAsync(string winnerId, string loserId, bool isDraw = false)
+{
+    if (!isFirestoreInitialized) return;
+
+    var playersCollection = GetCollection("players");
+    var batch = db.StartBatch();
+
+    // --- Update Winner ---
+    var winnerRef = playersCollection.Document(winnerId);
+    var winnerUpdate = new Dictionary<string, object>
+    {
+        // Use dot notation to target the specific field inside the 'matchStats' map
+        { "matchStats.totalMatchesOnline", FieldValue.Increment(1) },
+        
+        { "matchStats.totalWinsOnline", isDraw ? FieldValue.Increment(0) : FieldValue.Increment(1) }
+    };
+    batch.Update(winnerRef, winnerUpdate);
+
+    // --- Update Loser ---
+    var loserRef = playersCollection.Document(loserId);
+    var loserUpdate = new Dictionary<string, object>
+    {
+        // This only increments the match count, leaving the win count untouched
+        { "matchStats.totalMatchesOnline", FieldValue.Increment(1) }
+    };
+    batch.Update(loserRef, loserUpdate);
+
+    // Commit both updates together
+    Debug.Log($"Committing stats update. Winner: {winnerId}, Loser: {loserId}");
+    await batch.CommitAsync();
+}
 
 /// <summary>
 /// Creates a player profile if one doesn't exist, or updates key details upon login.
 /// This is called immediately after any successful authentication.
 /// </summary>
 /// <param name="user">The authenticated Firebase user.</param>
+// In FirestoreManager.cs
 public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
 {
     if (!isFirestoreInitialized || user == null)
@@ -223,67 +269,66 @@ public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
     }
 
     DocumentReference globalPlayerRef = GetCollection("players").Document(user.UserId);
-
-    // First, check if the document already exists
     DocumentSnapshot snapshot = await globalPlayerRef.GetSnapshotAsync();
 
     if (!snapshot.Exists)
     {
-        // --- THIS IS A NEW USER ---
-        // Create a complete profile with default values for all nested classes.
+        // THIS IS A NEW USER - SetAsync is correct here because we create the whole document.
         var newProfile = new PlayerData
         {
-            // Login Info
             playerId = user.UserId,
             playerName = user.DisplayName ?? "NoName",
             email = user.Email ?? "NoEmail",
             profilePic = user.PhotoUrl?.ToString(),
             lastLoginTime = Timestamp.GetCurrentTimestamp(),
             currentBuildVersion = Application.version,
-            lastBuildVersion = Application.version, // Set to current on creation
+            lastBuildVersion = Application.version,
             loginSource = _signInManger.GetLoginSource(),
-
-            // Game State Info with Default Values
             roomID = string.Empty,
-            scores = new Scores 
-            { 
-                score = 0 
-            },
+            scores = new Scores { score = 0 },
             matchStats = new Matches
             {
                 totalMatchesOnline = 0,
-                totalWinesOnline = 0,
+                totalWinsOnline = 0,
                 totalMatchesAI = 0,
                 totalWinesAI = 0
             },
-            totalWinesOnline = new XPLevel // Note: This field name might be a typo in your class
-            {
-                XPPoints = 0,
-                XPTag = "Rookie" // A sensible default tag
-            }
+            // Corrected property name from previous discussions
+            xpLevel = new XPLevel { XPPoints = 0, XPTag = "Rookie" }
         };
 
         await globalPlayerRef.SetAsync(newProfile);
-        Debug.Log($"NEW player profile created with default values for {user.UserId}");
+        Debug.Log($"NEW player profile created for {user.UserId}");
     }
     else
     {
-        // --- THIS IS AN EXISTING USER ---
-        // Update only the login-specific fields to avoid overwriting their game progress.
-        var profileUpdate = new PlayerData
+        // --- ✅ THIS IS THE FIX FOR EXISTING USERS ---
+        // We now build a dictionary and use UpdateAsync for a safe, targeted update.
+        var updates = new Dictionary<string, object>
         {
-            playerName = user.DisplayName ?? "NoName",
-            profilePic = user.PhotoUrl?.ToString(),
-            lastLoginTime = Timestamp.GetCurrentTimestamp(),
-            currentBuildVersion = Application.version,
+            { "playerName", user.DisplayName ?? "NoName" },
+            { "profilePic", user.PhotoUrl?.ToString() },
+            { "lastLoginTime", Timestamp.GetCurrentTimestamp() },
+            { "currentBuildVersion", Application.version },
+            { "loginSource", _signInManger.GetLoginSource() }
         };
 
-        // MergeFields ensures we only touch these specific properties
-        await globalPlayerRef.SetAsync(profileUpdate, SetOptions.MergeFields(
-            "playerName", "profilePic", "lastLoginTime", 
-            "currentBuildVersion"
-        ));
-        Debug.Log($"EXISTING player profile updated for {user.UserId}");
+        // Also check if matchStats needs to be initialized
+        PlayerData existingProfile = snapshot.ConvertTo<PlayerData>();
+        if (existingProfile.matchStats == null)
+        {
+            Debug.Log($"Player {user.UserId} is missing matchStats. Initializing now.");
+            updates["matchStats"] = new Matches
+            {
+                totalMatchesOnline = 0,
+                totalWinsOnline = 0,
+                totalMatchesAI = 0,
+                totalWinesAI = 0
+            };
+        }
+
+        await globalPlayerRef.UpdateAsync(updates);
+        Debug.Log($"EXISTING player profile safely updated for {user.UserId}");
     }
 }
 
@@ -294,69 +339,27 @@ public async Task CreateOrUpdatePlayerProfileOnLoginAsync(FirebaseUser user)
 /// <param name="scoreDelta">The amount to add to the score (e.g., 1 or -1).</param>
 public async Task UpdatePlayerScoreAsync(string roomId, int scoreDelta)
 {
-    // 1. Pre-condition checks
     if (!IsReady(out FirebaseUser user)) return;
-    if (string.IsNullOrEmpty(roomId))
-    {
-        Debug.LogError("Room ID is null or empty. Cannot update score.");
-        return;
-    }
-
-    DocumentReference roomRef = GetCollection("rooms").Document(roomId);
-
+    
     try
     {
-        // 2. We need to know which field to increment: 'player1Score' or 'player2Score'
-        // To do this, we must first read the room document to find the player's index.
-        DocumentSnapshot roomSnapshot = await roomRef.GetSnapshotAsync();
-        if (!roomSnapshot.Exists)
-        {
-            Debug.LogError($"Room {roomId} does not exist.");
-            return;
-        }
-
-        GameData gameData = roomSnapshot.ConvertTo<GameData>();
-        if (gameData?.roomData?.playerIDs == null)
-        {
-            Debug.LogError("PlayerIDs array is missing from room data.");
-            return;
-        }
-        // --- ADD THIS LOGGING ---
-        string[] playerIdsInDoc = gameData.roomData.playerIDs ?? new string[0];
-        Debug.Log($"[UpdateScore] Current User: {user.UserId}. Player IDs in Doc: [{string.Join(", ", playerIdsInDoc)}]");
-        // --- END LOGGING ---
-
-        int playerIndex = System.Array.IndexOf(gameData.roomData.playerIDs, user.UserId);
-        // --- ADD THIS LOGGING ---
-        Debug.Log($"[UpdateScore] Calculated playerIndex: {playerIndex}");
-        // --- END LOGGING ---
-        string scoreFieldToUpdate;
-        if (playerIndex == 0)
-        {
-            scoreFieldToUpdate = "roomData.playerScore.player1Score";
-        }
-        else if (playerIndex == 1)
-        {
-            scoreFieldToUpdate = "roomData.playerScore.player2Score";
-        }
-        else
-        {
-            Debug.LogWarning($"Player {user.UserId} not found in room {roomId}. Score not updated.");
-            return;
-        }
-
-        // 3. Create the update dictionary with the atomic increment operation
-        var updates = new Dictionary<string, object>
-        {
-            { scoreFieldToUpdate, FieldValue.Increment(scoreDelta) }
-        };
-
-        // 4. Send the atomic update request
-        await roomRef.UpdateAsync(updates);
+        DocumentReference roomRef = GetCollection("rooms").Document(roomId);
+        DocumentSnapshot snapshot = await roomRef.GetSnapshotAsync();
+        
+        if (!snapshot.Exists) return;
+        
+        GameData gameData = snapshot.ConvertTo<GameData>();
+        int playerIndex = Array.IndexOf(gameData.roomData.playerIDs, user.UserId);
+        
+        string scorePath = playerIndex == 0 ? 
+            "roomData.playerScore.player1Score" : 
+            "roomData.playerScore.player2Score";
+            
+        await roomRef.UpdateAsync(scorePath, FieldValue.Increment(scoreDelta));
     }
-    catch (System.Exception e)
+    catch (Exception e)
     {
-        Debug.LogError($"Error updating score with increment: {e.Message}");
+        Debug.LogError($"Score update error: {e.Message}");
     }
 }
 
@@ -603,54 +606,60 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
     /// closing the room, and cleaning up profiles.
     /// </summary>
     public async Task LeaveRoomAsync()
+{
+    if (!IsReady(out FirebaseUser leavingUser)) return;
+
+    DocumentReference playerProfileRef = GetCollection("players").Document(leavingUser.UserId);
+    string roomId = null;
+
+    try
     {
-        // 1. Pre-condition checks
-        if (!IsReady(out FirebaseUser user)) return;
-
-        DocumentReference playerRef = GetCollection("players").Document(user.UserId);
-        string roomId = null;
-
-        try
+        // Get the player's profile to find their current room ID
+        DocumentSnapshot playerSnapshot = await playerProfileRef.GetSnapshotAsync();
+        if (playerSnapshot.Exists)
         {
-            // 2. Get the player's profile to find their current room ID
-            DocumentSnapshot playerSnapshot = await playerRef.GetSnapshotAsync();
-            if (playerSnapshot.Exists)
-            {
-                PlayerData playerData = playerSnapshot.ConvertTo<PlayerData>();
-                roomId = playerData.roomID;
-            }
-
-            // Exit if the player isn't in a room
-            if (string.IsNullOrEmpty(roomId))
-            {
-                Debug.LogWarning($"Player {user.UserId} is not in a room, cannot leave.");
-                return;
-            }
-
-            Debug.Log($"Player {user.UserId} is leaving room {roomId}.");
-        
-            // 3. Remove the current player from the room's "players" subcollection
-            DocumentReference playerInRoomRef = GetCollection("rooms").Document(roomId).Collection("players").Document(user.UserId);
-            await playerInRoomRef.DeleteAsync();
-            Debug.Log($"Player {user.UserId} removed from room's subcollection.");
-
-            // 4. Clear the room ID from the leaving player's own profile immediately
-            await ClearStaleRoomDataFromPlayerProfile(playerRef);
-        
-            // 5. Close the room for everyone. This will also handle cleaning up the
-            // profiles of any remaining players.
-            await CloseRoom(roomId);
+            roomId = playerSnapshot.ConvertTo<PlayerData>().roomID;
         }
-        catch (System.Exception e)
+
+        if (string.IsNullOrEmpty(roomId))
         {
-            Debug.LogError($"Error during LeaveRoom process: {e.Message}");
-            // As a failsafe, still try to clear the player's room data
-            if (playerRef != null)
+            Debug.LogWarning($"Player {leavingUser.UserId} is not in a room, cannot leave.");
+            return;
+        }
+
+        Debug.Log($"Player {leavingUser.UserId} is leaving room {roomId}.");
+        DocumentReference roomRef = GetCollection("rooms").Document(roomId);
+
+        // --- NEW LOGIC: FIND REMAINING PLAYER AND AWARD WIN ---
+        DocumentSnapshot roomSnapshot = await roomRef.GetSnapshotAsync();
+        if (roomSnapshot.Exists)
+        {
+            GameData gameData = roomSnapshot.ConvertTo<GameData>();
+            if (gameData.roomData.playerIDs != null && gameData.roomData.playerIDs.Length == 2)
             {
-                await ClearStaleRoomDataFromPlayerProfile(playerRef);
+                // Find the ID of the player who is NOT leaving
+                string remainingPlayerId = gameData.roomData.playerIDs.FirstOrDefault(id => id != leavingUser.UserId);
+
+                if (!string.IsNullOrEmpty(remainingPlayerId))
+                {
+                    // The remaining player is the winner, the leaver is the loser.
+                    await UpdatePlayerStatsAsync(winnerId: remainingPlayerId, loserId: leavingUser.UserId);
+                }
             }
         }
+        // --- END OF NEW LOGIC ---
+
+        // Now, close the room for everyone. Our modified CloseRoom will handle cleanup.
+        // We call CloseRoom instead of duplicating the cleanup logic here.
+        await CloseRoom(roomId, processWinLoss: false); 
     }
+    catch (System.Exception e)
+    {
+        Debug.LogError($"Error during LeaveRoom process: {e.Message}");
+        // As a failsafe, still try to clear the player's room data
+        await ClearStaleRoomDataFromPlayerProfile(playerProfileRef);
+    }
+}
     
     // ---------------- UPDATE BUTTON STATE ----------------
     public async void UpdateButtonState(string roomId, int buttonIndex, int newState)
@@ -693,7 +702,7 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
     // In FirestoreManager.cs
 
 // ---------------- CLOSE ROOM ----------------
-public async Task CloseRoom(string roomId)
+public async Task CloseRoom(string roomId, bool processWinLoss = true)
 {
     if (!isFirestoreInitialized)
     {
@@ -705,7 +714,6 @@ public async Task CloseRoom(string roomId)
 
     try
     {
-        // Step 1: Get the current room data to find the players
         DocumentSnapshot roomSnapshot = await roomRef.GetSnapshotAsync();
         if (!roomSnapshot.Exists)
         {
@@ -715,39 +723,47 @@ public async Task CloseRoom(string roomId)
 
         GameData gameData = roomSnapshot.ConvertTo<GameData>();
         
-        List<string> playerIDs = gameData.roomData.playerIDs != null ? 
-                                 new List<string>(gameData.roomData.playerIDs) : 
-                                 new List<string>();
-
-
-        // Step 2: Update the room's status and clear its player list
-        // We now update both fields in a single operation.
-        await roomRef.UpdateAsync(new Dictionary<string, object>
+        // ✅ --- NEW WRAPPER --- ✅
+        // Only process winner stats if instructed to.
+        if (processWinLoss)
         {
-            { "roomData.isOpen", false },
-            { "roomData.playerIDs", new List<string>() } // ✅ ADD THIS LINE
-        });
-        Debug.Log($"Room {roomId} closed and player list cleared successfully.");
-        
-        // This updates the UI of the client who initiated the close.
+            Debug.Log("Processing win/loss stats based on score...");
+            if (gameData.roomData.playerIDs != null && gameData.roomData.playerIDs.Length == 2)
+            {
+                string player1Id = gameData.roomData.playerIDs[0];
+                string player2Id = gameData.roomData.playerIDs[1];
+                int p1Score = gameData.roomData.playerScore.player1Score;
+                int p2Score = gameData.roomData.playerScore.player2Score;
+
+                if (p1Score > p2Score)
+                {
+                    await UpdatePlayerStatsAsync(winnerId: player1Id, loserId: player2Id);
+                }
+                else if (p2Score > p1Score)
+                {
+                    await UpdatePlayerStatsAsync(winnerId: player2Id, loserId: player1Id);
+                }
+                else // It's a draw
+                {
+                    await UpdatePlayerStatsAsync(winnerId: player1Id, loserId: player2Id, isDraw: true);
+                }
+            }
+        }
+        // ✅ --- END OF WRAPPER --- ✅
+
+        // The rest of the cleanup logic runs every time.
+        await roomRef.UpdateAsync("roomData.isOpen", false);
+        Debug.Log($"Room {roomId} marked as closed.");
         _uiManager.OnRoomClosed();
 
-        // Step 3: Update the profile of each player who was in that room
-        if (playerIDs.Count > 0)
+        List<string> playerIDsInRoom = gameData.roomData.playerIDs?.ToList() ?? new List<string>();
+        if (playerIDsInRoom.Count > 0)
         {
-            foreach (string playerId in playerIDs)
+            foreach (string playerId in playerIDsInRoom)
             {
                 if (string.IsNullOrEmpty(playerId)) continue;
-                
                 DocumentReference playerRef = GetCollection("players").Document(playerId);
-                
-                Dictionary<string, object> playerUpdates = new Dictionary<string, object>
-                {
-                    { "roomID", string.Empty }
-                };
-
-                await playerRef.UpdateAsync(playerUpdates);
-                Debug.Log($"Updated player {playerId} profile: roomID cleared.");
+                await ClearStaleRoomDataFromPlayerProfile(playerRef);
             }
         }
     }

@@ -243,6 +243,7 @@ namespace BackendDev
             }
         }
         
+        
         #region OnEnable/OnDisable
         public void UpdateUiAfterLogin(FirebaseUser user)
         {
