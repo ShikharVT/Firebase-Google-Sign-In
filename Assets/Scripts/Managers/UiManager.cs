@@ -76,6 +76,10 @@ namespace BackendDev
 
         private void Update()
         {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                HandleBackButton();
+            }
             if (!isTimerRunning) return;
 
             remainingTime -= Time.deltaTime;
@@ -351,6 +355,39 @@ namespace BackendDev
                     _roomTimer.text = "Expired";
                     FirestoreManager.Instance.CloseRoom(roomId);
                 }
+            }
+        }
+
+        private void HandleBackButton()
+        {
+            // Determine which screen is active and handle accordingly
+            if (_gamePlayScreen.activeSelf)
+            {
+                // If in gameplay, leave the room
+                OnLeaveButtonClick();
+            }
+            else if (_createARoomScreen.activeSelf || _joinRoomScreen.activeSelf)
+            {
+                // If in create/join room screens, go back to choices
+                _createARoomScreen.SetActive(false);
+                _joinRoomScreen.SetActive(false);
+                _roomScreenChoices.SetActive(true);
+            }
+            else if (_roomScreenChoices.activeSelf)
+            {
+                // If in room choices, go back to game screen or exit
+                _roomScreenChoices.SetActive(false);
+                _gameScreen.SetActive(true);
+            }
+            else if (_gameScreen.activeSelf)
+            {
+                // If in game screen, exit the application
+                Application.Quit();
+            }
+            else if (_loginScreen.activeSelf)
+            {
+                // If in login screen, exit the application
+                Application.Quit();
             }
         }
 
