@@ -271,7 +271,10 @@ namespace BackendDev
         {
             return new RoomData
             {
-                isOpen = true,
+                roomProperties = new RoomProperties
+                {
+                   roomStatus = true
+                } ,
                 roomID = _roomIdInputField.text,
                 buildVersion = Application.version,
 
@@ -412,7 +415,7 @@ namespace BackendDev
         private void OnRoomDataUpdated(RoomData incomingRoomData)
         {
             // If the room is no longer open, close the UI and stop processing.
-            if (!incomingRoomData.isOpen)
+            if (!incomingRoomData.roomProperties.roomStatus)
             {
                 Debug.Log("Room has been closed. Returning to menu.");
                 OnRoomClosed();

@@ -489,7 +489,7 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
         {
             Debug.Log($"Room {lastRoomId} has expired. This player will mark it as closed.");
             // Action: Close the room
-            await roomRef.UpdateAsync("roomData.isOpen", false);
+            await roomRef.UpdateAsync("roomData.roomProperties.roomStatus", false);
             // Action: Clean up this player's profile
             await ClearStaleRoomDataFromPlayerProfile(playerRef);
             return null; // Session is invalid.
@@ -497,7 +497,7 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
         
         // --- Scenario 3: The room is ALREADY CLOSED. (This is Player 2's case) ---
         // Another player (or the server) has already marked this room as closed.
-        if (!gameData.roomData.isOpen)
+        if (!gameData.roomData.roomProperties.roomStatus)
         {
             Debug.Log($"Room {lastRoomId} is already closed. Cleaning up this player's profile.");
             // Action: Just clean up this player's stale data
@@ -531,7 +531,7 @@ public async Task<GameData> CheckAndResumePlayerSessionAsync()
             return; 
         }
 
-        var openRoomsQuery = GetCollection("rooms").WhereEqualTo("roomData.isOpen", true);
+        var openRoomsQuery = GetCollection("rooms").WhereEqualTo("roomData.roomProperties.roomStatus", true);
         Debug.Log("Open rooms query: " + openRoomsQuery.ToString());
 
         var querySnapshot = await openRoomsQuery.GetSnapshotAsync();
@@ -751,7 +751,7 @@ public async Task CloseRoom(string roomId, bool processWinLoss = true)
         // ✅ --- END OF WRAPPER --- ✅
 
         // The rest of the cleanup logic runs every time.
-        await roomRef.UpdateAsync("roomData.isOpen", false);
+        await roomRef.UpdateAsync("roomData.roomProperties.roomStatus", false);
         Debug.Log($"Room {roomId} marked as closed.");
         _uiManager.OnRoomClosed();
 

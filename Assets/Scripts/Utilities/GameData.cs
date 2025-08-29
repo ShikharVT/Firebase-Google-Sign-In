@@ -20,9 +20,6 @@ namespace BackendDev
     public class RoomData
     {
         [FirestoreProperty]
-        public bool isOpen { get; set; }
-        
-        [FirestoreProperty]
         public string roomID { get; set; }
         
         [FirestoreProperty]
